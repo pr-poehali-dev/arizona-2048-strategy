@@ -92,7 +92,6 @@ const MOVE_LABELS: Record<string, string> = {
   down: "↓ Вниз",
 };
 
-type Tab = "dashboard" | "stats" | "settings" | "logs";
 type BotStatus = "idle" | "running" | "paused" | "stopped";
 
 interface LogEntry {
@@ -157,12 +156,15 @@ function StatusDot({ status }: { status: BotStatus }) {
   );
 }
 
+type Tab = "dashboard" | "stats" | "settings" | "logs" | "setup";
+
 function Sidebar({ active, onChange }: { active: Tab; onChange: (t: Tab) => void }) {
   const items: { id: Tab; icon: string; label: string }[] = [
     { id: "dashboard", icon: "LayoutDashboard", label: "Главная" },
     { id: "stats", icon: "BarChart2", label: "Статистика" },
     { id: "settings", icon: "SlidersHorizontal", label: "Настройки" },
     { id: "logs", icon: "Terminal", label: "Логи" },
+    { id: "setup", icon: "MonitorDown", label: "Установка" },
   ];
 
   return (
@@ -601,6 +603,102 @@ function Logs({ logs }: { logs: LogEntry[] }) {
   );
 }
 
+function Setup() {
+  const steps = [
+    {
+      num: "01",
+      title: "Скачай файлы бота",
+      desc: "Открой сайт → Скачать → Скачать код. В папке public/bot/ находятся все нужные файлы.",
+      code: null,
+    },
+    {
+      num: "02",
+      title: "Установи Python",
+      desc: 'Скачай Python 3.x с python.org. При установке обязательно отметь "Add Python to PATH".',
+      code: null,
+    },
+    {
+      num: "03",
+      title: "Установи зависимости",
+      desc: "Запусти setup.bat двойным кликом — он автоматически установит все библиотеки.",
+      code: "pip install opencv-python pyautogui mss pillow numpy",
+    },
+    {
+      num: "04",
+      title: "Настрой координаты",
+      desc: "Открой bot.py в блокноте. Найди MANUAL_REGION и укажи координаты окна с игрой (x, y, ширина, высота).",
+      code: "MANUAL_REGION = (100, 200, 500, 500)",
+    },
+    {
+      num: "05",
+      title: "Запусти бота",
+      desc: "Открой игру 2048 в Arizona RP. Запусти run.bat. Бот начнёт через 3 секунды — переключись на игру.",
+      code: "python bot.py",
+    },
+  ];
+
+  return (
+    <div className="p-6 animate-fade-in">
+      <div className="mb-6">
+        <h1 className="text-lg font-mono font-semibold">Установка бота</h1>
+        <p className="text-xs text-muted-foreground font-mono mt-0.5">Инструкция по запуску на компьютере</p>
+      </div>
+
+      <div className="bg-card border border-primary/30 rounded p-4 mb-6 glow-accent">
+        <div className="flex items-start gap-3">
+          <Icon name="Download" size={16} className="text-accent mt-0.5 shrink-0" />
+          <div>
+            <p className="font-mono text-sm text-foreground font-medium">Скачай файлы бота</p>
+            <p className="font-mono text-xs text-muted-foreground mt-1">
+              Нажми <span className="text-accent">Скачать → Скачать код</span> на этом сайте.
+              Файлы бота находятся в папке <span className="text-accent font-mono">public/bot/</span>
+            </p>
+          </div>
+        </div>
+      </div>
+
+      <div className="space-y-3 mb-6">
+        {steps.map((step) => (
+          <div key={step.num} className="bg-card border border-border rounded p-4">
+            <div className="flex items-start gap-4">
+              <span className="font-mono text-2xl font-bold text-primary/40 shrink-0 leading-none">{step.num}</span>
+              <div className="flex-1">
+                <p className="font-mono text-sm font-medium text-foreground mb-1">{step.title}</p>
+                <p className="font-mono text-xs text-muted-foreground">{step.desc}</p>
+                {step.code && (
+                  <div className="mt-2 bg-muted rounded px-3 py-2 font-mono text-xs text-accent border border-border">
+                    {step.code}
+                  </div>
+                )}
+              </div>
+            </div>
+          </div>
+        ))}
+      </div>
+
+      <div className="bg-card border border-border rounded p-5">
+        <p className="text-xs font-mono text-muted-foreground uppercase tracking-widest mb-4">Частые проблемы</p>
+        <div className="space-y-3">
+          {[
+            { q: "Бот не видит плитки", a: "Настрой MANUAL_REGION — укажи точные координаты сетки 4×4 в игре" },
+            { q: "Python не найден", a: 'При установке Python отметь галочку "Add Python to PATH"' },
+            { q: "Бот нажимает не туда", a: "Переключись на окно игры до запуска бота. Фокус должен быть на игре" },
+            { q: "Ошибка pip install", a: "Запусти cmd от имени администратора и повтори команду" },
+          ].map((item) => (
+            <div key={item.q} className="flex gap-3">
+              <Icon name="AlertCircle" size={14} className="text-yellow-400 shrink-0 mt-0.5" fallback="CircleAlert" />
+              <div>
+                <p className="font-mono text-xs font-medium text-foreground">{item.q}</p>
+                <p className="font-mono text-xs text-muted-foreground">{item.a}</p>
+              </div>
+            </div>
+          ))}
+        </div>
+      </div>
+    </div>
+  );
+}
+
 export default function App() {
   const [tab, setTab] = useState<Tab>("dashboard");
   const [status, setStatus] = useState<BotStatus>("idle");
@@ -762,6 +860,7 @@ export default function App() {
           />
         )}
         {tab === "logs" && <Logs logs={logs} />}
+        {tab === "setup" && <Setup />}
       </main>
     </div>
   );
