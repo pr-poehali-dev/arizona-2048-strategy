@@ -1,5 +1,96 @@
-import { useState, useEffect, useRef } from "react";
+import { useState, useEffect, useRef, useCallback } from "react";
 import Icon from "@/components/ui/icon";
+
+const SOLVE_URL = "https://functions.poehali.dev/d390d2b7-394b-4cb7-b079-2edb715fa0b8";
+
+async function fetchBestMove(board: number[][], algo: string, depth: number): Promise<{
+  move: string | null;
+  score: number;
+  game_over: boolean;
+  all_moves: Record<string, number | null>;
+} | null> {
+  try {
+    const res = await fetch(SOLVE_URL, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ board, algo, depth }),
+    });
+    const data = await res.json();
+    if (typeof data === "string") return JSON.parse(data);
+    return data;
+  } catch {
+    return null;
+  }
+}
+
+function applyMove(board: number[][], move: string): { board: number[][]; score: number; moved: boolean } {
+  const rotate = (b: number[][]) => b[0].map((_, i) => b.map((row) => row[i]).reverse());
+  const mergeLeft = (b: number[][]) => {
+    let score = 0;
+    let moved = false;
+    const nb = b.map((row) => {
+      const tiles = row.filter((x) => x !== 0);
+      const merged: number[] = [];
+      let skip = false;
+      for (let i = 0; i < tiles.length; i++) {
+        if (skip) { skip = false; continue; }
+        if (i + 1 < tiles.length && tiles[i] === tiles[i + 1]) {
+          const v = tiles[i] * 2;
+          merged.push(v);
+          score += v;
+          skip = true;
+        } else merged.push(tiles[i]);
+      }
+      while (merged.length < 4) merged.push(0);
+      if (merged.join() !== row.join()) moved = true;
+      return merged;
+    });
+    return { board: nb, score, moved };
+  };
+  if (move === "left") return mergeLeft(board);
+  if (move === "right") {
+    const rev = board.map((r) => [...r].reverse());
+    const { board: nb, score, moved } = mergeLeft(rev);
+    return { board: nb.map((r) => [...r].reverse()), score, moved };
+  }
+  if (move === "up") {
+    const tr = rotate(rotate(rotate(board)));
+    const { board: nb, score, moved } = mergeLeft(tr);
+    return { board: rotate(nb), score, moved };
+  }
+  if (move === "down") {
+    const tr = rotate(board);
+    const { board: nb, score, moved } = mergeLeft(tr);
+    return { board: rotate(rotate(rotate(nb))), score, moved };
+  }
+  return { board, score: 0, moved: false };
+}
+
+function addRandomTile(board: number[][]): number[][] {
+  const empty: [number, number][] = [];
+  for (let r = 0; r < 4; r++)
+    for (let c = 0; c < 4; c++)
+      if (board[r][c] === 0) empty.push([r, c]);
+  if (!empty.length) return board;
+  const [r, c] = empty[Math.floor(Math.random() * empty.length)];
+  const nb = board.map((row) => [...row]);
+  nb[r][c] = Math.random() < 0.9 ? 2 : 4;
+  return nb;
+}
+
+function initBoard(): number[][] {
+  let b = Array.from({ length: 4 }, () => [0, 0, 0, 0]);
+  b = addRandomTile(b);
+  b = addRandomTile(b);
+  return b;
+}
+
+const MOVE_LABELS: Record<string, string> = {
+  left: "← Влево",
+  right: "→ Вправо",
+  up: "↑ Вверх",
+  down: "↓ Вниз",
+};
 
 type Tab = "dashboard" | "stats" | "settings" | "logs";
 type BotStatus = "idle" | "running" | "paused" | "stopped";
@@ -130,6 +221,22 @@ function MetricCard({
   );
 }
 
+function tileColor(val: number) {
+  if (val === 0) return "bg-muted text-transparent";
+  if (val === 2) return "bg-stone-700 text-stone-300";
+  if (val === 4) return "bg-stone-600 text-stone-200";
+  if (val === 8) return "bg-orange-900 text-orange-300";
+  if (val === 16) return "bg-orange-800 text-orange-200";
+  if (val === 32) return "bg-orange-700 text-orange-100";
+  if (val === 64) return "bg-amber-700 text-amber-100";
+  if (val === 128) return "bg-amber-600 text-amber-50";
+  if (val === 256) return "bg-amber-500 text-white";
+  if (val === 512) return "bg-yellow-500 text-white";
+  if (val === 1024) return "bg-yellow-400 text-black";
+  if (val === 2048) return "bg-primary text-primary-foreground glow-accent";
+  return "bg-primary text-primary-foreground glow-accent";
+}
+
 function Dashboard({
   status,
   stats,
@@ -137,6 +244,9 @@ function Dashboard({
   onPause,
   onStop,
   elapsed,
+  board,
+  lastMove,
+  thinking,
 }: {
   status: BotStatus;
   stats: GameStats;
@@ -144,6 +254,9 @@ function Dashboard({
   onPause: () => void;
   onStop: () => void;
   elapsed: number;
+  board: number[][];
+  lastMove: string | null;
+  thinking: boolean;
 }) {
   return (
     <div className="p-6 animate-fade-in">
@@ -218,32 +331,29 @@ function Dashboard({
       </div>
 
       <div className="bg-card border border-border rounded p-5">
-        <p className="text-xs font-mono text-muted-foreground uppercase tracking-widest mb-4">Текущая игровая сетка</p>
+        <div className="flex items-center justify-between mb-4">
+          <p className="text-xs font-mono text-muted-foreground uppercase tracking-widest">Игровая сетка</p>
+          {lastMove && (
+            <span className="font-mono text-xs text-accent bg-primary/10 px-2 py-0.5 rounded">
+              {MOVE_LABELS[lastMove] ?? lastMove}
+            </span>
+          )}
+          {thinking && (
+            <span className="font-mono text-xs text-yellow-400 animate-pulse-dot">⏳ Вычисляю...</span>
+          )}
+        </div>
         <div className="grid grid-cols-4 gap-2 max-w-[240px]">
-          {[2048, 1024, 512, 256, 128, 64, 32, 16, 8, 4, 2, 0, 0, 0, 0, 0].map((val, i) => (
+          {board.flat().map((val, i) => (
             <div
               key={i}
-              className={`h-14 rounded flex items-center justify-center font-mono text-sm font-semibold
-                ${val === 0 ? "bg-muted text-transparent" : ""}
-                ${val === 2 ? "bg-stone-700 text-stone-300" : ""}
-                ${val === 4 ? "bg-stone-600 text-stone-200" : ""}
-                ${val === 8 ? "bg-orange-900 text-orange-300" : ""}
-                ${val === 16 ? "bg-orange-800 text-orange-200" : ""}
-                ${val === 32 ? "bg-orange-700 text-orange-100" : ""}
-                ${val === 64 ? "bg-amber-700 text-amber-100" : ""}
-                ${val === 128 ? "bg-amber-600 text-amber-50" : ""}
-                ${val === 256 ? "bg-amber-500 text-white" : ""}
-                ${val === 512 ? "bg-yellow-500 text-white" : ""}
-                ${val === 1024 ? "bg-yellow-400 text-black" : ""}
-                ${val === 2048 ? "bg-primary text-primary-foreground glow-accent" : ""}
-              `}
+              className={`h-14 rounded flex items-center justify-center font-mono text-sm font-semibold transition-colors duration-200 ${tileColor(val)}`}
             >
               {val > 0 ? val : ""}
             </div>
           ))}
         </div>
         <p className="text-xs text-muted-foreground font-mono mt-3">
-          {status === "running" ? "▶ Бот активен — захват экрана включён" : "⬜ Захват экрана отключён"}
+          {status === "running" ? "▶ Бот активен — алгоритм работает" : status === "paused" ? "⏸ Пауза" : "⬜ Бот не запущен"}
         </p>
       </div>
     </div>
@@ -497,79 +607,132 @@ export default function App() {
   const [elapsed, setElapsed] = useState(0);
   const [logs, setLogs] = useState<LogEntry[]>(INITIAL_LOGS);
   const [nextLogId, setNextLogId] = useState(10);
+  const [board, setBoard] = useState<number[][]>(initBoard);
+  const [lastMove, setLastMove] = useState<string | null>(null);
+  const [thinking, setThinking] = useState(false);
+  const [currentScore, setCurrentScore] = useState(0);
 
   const [algo, setAlgo] = useState("expectimax");
   const [depth, setDepth] = useState(4);
-  const [speed, setSpeed] = useState(200);
+  const [speed, setSpeed] = useState(300);
   const [captureRegion, setCaptureRegion] = useState("100, 200, 600, 600");
   const [autoRestart, setAutoRestart] = useState(true);
 
   const [stats, setStats] = useState<GameStats>({
-    gamesPlayed: 47,
-    bestScore: 89420,
-    avgScore: 31240,
-    bestTile: 2048,
-    winRate: 42,
-    totalMoves: 18640,
-    sessionTime: 7200,
+    gamesPlayed: 0,
+    bestScore: 0,
+    avgScore: 0,
+    bestTile: 0,
+    winRate: 0,
+    totalMoves: 0,
+    sessionTime: 0,
   });
 
   const timerRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  const runningRef = useRef(false);
   const logIdRef = useRef(nextLogId);
+  const boardRef = useRef(board);
+  const scoreRef = useRef(currentScore);
+  const statsRef = useRef(stats);
   logIdRef.current = nextLogId;
+  boardRef.current = board;
+  scoreRef.current = currentScore;
+  statsRef.current = stats;
 
-  const addLog = (type: LogEntry["type"], message: string) => {
+  const addLog = useCallback((type: LogEntry["type"], message: string) => {
     const now = new Date();
     const time = `${String(now.getHours()).padStart(2, "0")}:${String(now.getMinutes()).padStart(2, "0")}:${String(now.getSeconds()).padStart(2, "0")}`;
     const id = logIdRef.current;
-    setLogs((prev) => [...prev.slice(-199), { id, time, type, message }]);
+    setLogs((prev) => [...prev.slice(-299), { id, time, type, message }]);
     setNextLogId((n) => n + 1);
-  };
+  }, []);
+
+  const runGameLoop = useCallback(async () => {
+    const currentBoard = boardRef.current;
+    setThinking(true);
+    const result = await fetchBestMove(currentBoard, algo, depth);
+    setThinking(false);
+
+    if (!result || result.game_over || !result.move) {
+      const finalScore = scoreRef.current;
+      const maxTile = Math.max(...boardRef.current.flat());
+      addLog("warn", `Игра окончена. Счёт: ${finalScore.toLocaleString()} | Плитка: ${maxTile}`);
+      setStats((s) => {
+        const games = s.gamesPlayed + 1;
+        const best = Math.max(s.bestScore, finalScore);
+        const bestT = Math.max(s.bestTile, maxTile);
+        const avgS = Math.round((s.avgScore * s.gamesPlayed + finalScore) / games);
+        const wins = maxTile >= 2048 ? s.winRate + 1 : s.winRate;
+        return { ...s, gamesPlayed: games, bestScore: best, bestTile: bestT, avgScore: avgS, winRate: wins };
+      });
+      if (autoRestart && runningRef.current) {
+        const newBoard = initBoard();
+        setBoard(newBoard);
+        setCurrentScore(0);
+        addLog("info", "Новая партия началась");
+      } else {
+        runningRef.current = false;
+        setStatus("stopped");
+      }
+      return;
+    }
+
+    const { board: newBoard, score: moveScore, moved } = applyMove(currentBoard, result.move);
+    if (!moved) return;
+
+    const withTile = addRandomTile(newBoard);
+    setBoard(withTile);
+    setLastMove(result.move);
+    setCurrentScore((s) => s + moveScore);
+    setStats((s) => ({ ...s, totalMoves: s.totalMoves + 1 }));
+    addLog("info", `${MOVE_LABELS[result.move]} | +${moveScore} | Оценка: ${Math.round(result.score).toLocaleString()}`);
+  }, [algo, depth, autoRestart, addLog]);
+
+  useEffect(() => {
+    if (status !== "running") return;
+    const tick = async () => {
+      if (!runningRef.current) return;
+      await runGameLoop();
+      if (runningRef.current) {
+        timerRef.current = setTimeout(tick, speed) as unknown as ReturnType<typeof setInterval>;
+      }
+    };
+    timerRef.current = setTimeout(tick, speed) as unknown as ReturnType<typeof setInterval>;
+    return () => { if (timerRef.current) clearTimeout(timerRef.current as unknown as ReturnType<typeof setTimeout>); };
+  }, [status, speed, runGameLoop]);
+
+  useEffect(() => {
+    if (status !== "running") return;
+    const interval = setInterval(() => {
+      setElapsed((e) => e + 1);
+      setStats((s) => ({ ...s, sessionTime: s.sessionTime + 1 }));
+    }, 1000);
+    return () => clearInterval(interval);
+  }, [status]);
 
   const handleStart = () => {
+    runningRef.current = true;
+    if (status === "idle" || status === "stopped") {
+      setBoard(initBoard());
+      setCurrentScore(0);
+      setElapsed(0);
+    }
     setStatus("running");
     const algoLabel = ALGO_OPTIONS.find((a) => a.id === algo)?.label ?? algo;
-    addLog("success", `Бот запущен. Алгоритм: ${algoLabel}, глубина: ${depth}`);
-    addLog("info", `Скорость ходов: ${speed}мс. Захват: ${captureRegion}`);
+    addLog("success", `Бот запущен. Алгоритм: ${algoLabel}, глубина: ${depth}, скорость: ${speed}мс`);
   };
 
   const handlePause = () => {
+    runningRef.current = false;
     setStatus("paused");
     addLog("warn", "Бот приостановлен");
   };
 
   const handleStop = () => {
+    runningRef.current = false;
     setStatus("stopped");
     addLog("error", "Бот остановлен пользователем");
   };
-
-  useEffect(() => {
-    if (status === "running") {
-      timerRef.current = setInterval(() => {
-        setElapsed((e) => e + 1);
-        if (Math.random() < 0.3) {
-          const moves = ["← Влево", "→ Вправо", "↑ Вверх", "↓ Вниз"];
-          const move = moves[Math.floor(Math.random() * 4)];
-          addLog("info", `Ход: ${move} | Оценка позиции: ${Math.floor(Math.random() * 9999 + 1000)}`);
-        }
-        if (Math.random() < 0.05) {
-          const score = Math.floor(Math.random() * 50000 + 10000);
-          addLog("success", `Партия завершена. Счёт: ${score.toLocaleString()}`);
-          setStats((s) => ({
-            ...s,
-            gamesPlayed: s.gamesPlayed + 1,
-            bestScore: Math.max(s.bestScore, score),
-            totalMoves: s.totalMoves + Math.floor(Math.random() * 300 + 100),
-          }));
-        }
-      }, 1000);
-    } else {
-      if (timerRef.current) clearInterval(timerRef.current);
-    }
-    return () => {
-      if (timerRef.current) clearInterval(timerRef.current);
-    };
-  }, [status]);
 
   return (
     <div className="flex h-screen bg-background overflow-hidden">
@@ -583,6 +746,9 @@ export default function App() {
             onPause={handlePause}
             onStop={handleStop}
             elapsed={elapsed}
+            board={board}
+            lastMove={lastMove}
+            thinking={thinking}
           />
         )}
         {tab === "stats" && <Stats stats={stats} />}

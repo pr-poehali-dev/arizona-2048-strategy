@@ -1,0 +1,53 @@
+{
+  "tests": [
+    {
+      "name": "Expectimax - стандартная доска",
+      "method": "POST",
+      "path": "/",
+      "body": {
+        "board": [
+          [2, 4, 8, 16],
+          [32, 64, 128, 256],
+          [512, 1024, 2048, 0],
+          [0, 0, 0, 0]
+        ],
+        "algo": "expectimax",
+        "depth": 2
+      },
+      "expectedStatus": 200,
+      "bodyMatcher": "partial"
+    },
+    {
+      "name": "Greedy - простой ход",
+      "method": "POST",
+      "path": "/",
+      "body": {
+        "board": [
+          [2, 2, 0, 0],
+          [0, 0, 0, 0],
+          [0, 0, 0, 0],
+          [0, 0, 0, 0]
+        ],
+        "algo": "greedy",
+        "depth": 1
+      },
+      "expectedStatus": 200,
+      "bodyMatcher": "partial"
+    },
+    {
+      "name": "Невалидная доска",
+      "method": "POST",
+      "path": "/",
+      "body": { "board": [[1, 2], [3, 4]] },
+      "expectedStatus": 400,
+      "bodyMatcher": "partial"
+    },
+    {
+      "name": "OPTIONS preflight",
+      "method": "OPTIONS",
+      "path": "/",
+      "expectedStatus": 200,
+      "bodyMatcher": "partial"
+    }
+  ]
+}
